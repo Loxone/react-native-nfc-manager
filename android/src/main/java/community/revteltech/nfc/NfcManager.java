@@ -17,10 +17,7 @@ import android.provider.Settings;
 
 import com.facebook.react.bridge.*;
 import com.facebook.react.modules.core.RCTNativeAppEventEmitter;
-import com.nxp.nfclib.CardType;
 import com.nxp.nfclib.NxpNfcLib;
-import com.nxp.nfclib.ntag.INTag213215216;
-import com.nxp.nfclib.ntag.NTagFactory;
 
 import android.app.PendingIntent;
 import android.content.IntentFilter.MalformedMimeTypeException;
@@ -46,6 +43,8 @@ import org.json.JSONObject;
 import org.json.JSONException;
 
 import java.util.*;
+
+import community.revteltech.nfc.usecases.MakeReadOnlyUseCase;
 
 class NfcManager extends ReactContextBaseJavaModule implements ActivityEventListener, LifecycleEventListener {
     private static final String LOG_TAG = "ReactNativeNfcManager";
@@ -687,22 +686,8 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
             if (techRequest != null) {
 
                 try {
-
                     techRequest.close();
-
-                    CardType cardType = nfcLib.getCardType(tag);
-                    boolean result;
-                    if (cardType == CardType.NTag216) {
-                        INTag213215216 nTag216 = NTagFactory.getInstance().getNTAG216(nfcLib.getCustomModules());
-                        nTag216.makeCardReadOnly();
-                        result = true;
-                    } else {
-                        Ndef ndef = Ndef.get(tag);
-                        ndef.connect();
-                        result = ndef.makeReadOnly();
-                        ndef.close();
-                    }
-
+                    boolean result = MakeReadOnlyUseCase.invoke(tag, nfcLib);
                     callback.invoke(null, result);
                 } catch (Exception ex) {
                     Log.e(LOG_TAG, "Error while making NFC tag read-only.", ex);
