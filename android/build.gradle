@@ -38,9 +38,15 @@ repositories {
 		// All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
 		url "$rootDir/../node_modules/react-native/android"
 	}
+
+	flatDir {
+        dirs("libs")
+    }
 }
 
 
 dependencies {
+  	implementation fileTree(dir: "libs", include: ["*.aar"])
+//     implementation(name:'nxpnfcandroidlib-3.1.0', ext:'aar')
 	implementation 'com.facebook.react:react-native:+'
 }
