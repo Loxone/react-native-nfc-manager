@@ -19,24 +19,30 @@ public class MakeReadOnlyUseCase {
 
     /**
      * Makes the given tag read-only.
-     * @param tag The tag which shall be made read-only.
+     *
+     * @param tag    The tag which shall be made read-only.
      * @param nfcLib Helper library that will be used for making the tag read-only.
      * @return True if the given  tag could be made read-only, false if not.
      */
     public static boolean invoke(@NonNull Tag tag, @NonNull NxpNfcLib nfcLib) throws IOException {
 
         CardType cardType = nfcLib.getCardType(tag);
-        final boolean result;
 
-        if (cardType == CardType.NTag216) {
-            result = handleNTag216(nfcLib);
-        } else {
-            result = handleNdef(tag);
+        switch (cardType) {
+            case NTag216:
+                return handleNTag216(nfcLib);
+            case DESFireEV1:
+                return handleDESFireEV1();
+            default:
+                return handleNdef(tag);
         }
 
-        return result;
-
     }
+
+    private static boolean handleDESFireEV1() {
+        return false; // TODO: Implement support for DESFireEV1
+    }
+
 
     private static boolean handleNTag216(@NonNull NxpNfcLib nfcLib) {
         INTag213215216 nTag216 = NTagFactory.getInstance().getNTAG216(nfcLib.getCustomModules());
