@@ -252,7 +252,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
                         isWritable = !isReadOnly;
 
                     } else {
-                        Ndef ndef = Ndef.get(techRequest.getTagHandle());
+                        Ndef ndef = Ndef.get(tag);
                         isWritable = ndef.isWritable();
                     }
 
