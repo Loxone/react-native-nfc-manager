@@ -17,7 +17,11 @@ import android.provider.Settings;
 
 import com.facebook.react.bridge.*;
 import com.facebook.react.modules.core.RCTNativeAppEventEmitter;
+import com.nxp.nfclib.CardType;
+import com.nxp.nfclib.KeyType;
 import com.nxp.nfclib.NxpNfcLib;
+import com.nxp.nfclib.desfire.DESFireFactory;
+import com.nxp.nfclib.desfire.IDESFireEV1;
 
 import android.app.PendingIntent;
 import android.content.IntentFilter.MalformedMimeTypeException;
@@ -44,6 +48,8 @@ import org.json.JSONException;
 
 import java.util.*;
 
+import community.revteltech.nfc.desfire.DesfireUtil;
+import community.revteltech.nfc.dto.NdefStatus;
 import community.revteltech.nfc.usecases.MakeReadOnlyUseCase;
 
 class NfcManager extends ReactContextBaseJavaModule implements ActivityEventListener, LifecycleEventListener {
@@ -228,18 +234,38 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
     public void getNdefStatus(Callback callback) {
         synchronized (this) {
             if (techRequest != null) {
-                WritableMap writableMap = Arguments.createMap();
+
                 try {
-                    Ndef ndef = Ndef.get(techRequest.getTagHandle());
+
+                    Tag tag = techRequest.getTagHandle();
+                    techRequest.close();
+
+                    CardType cardType = nfcLib.getCardType(tag);
+                    Log.d(LOG_TAG, "Checking NdefStatus of NFC-tag with card-type: " + cardType.name());
+
+                    boolean isWritable;
+
+                    if (cardType == CardType.DESFireEV1) {
+
+                        IDESFireEV1 desFireEV1 = DESFireFactory.getInstance().getDESFire(nfcLib.getCustomModules());
+                        boolean isReadOnly = DesfireUtil.getInstance().isReadOnly(desFireEV1);
+                        isWritable = !isReadOnly;
+
+                    } else {
+                        Ndef ndef = Ndef.get(techRequest.getTagHandle());
+                        isWritable = ndef.isWritable();
+                    }
+
+                    Ndef ndef = Ndef.get(tag);
                     int maxSize = ndef.getMaxSize();
-                    boolean isWritable = ndef.isWritable();
                     boolean canMakeReadOnly = ndef.canMakeReadOnly();
-                    writableMap.putInt("maxSize", maxSize);
-                    writableMap.putBoolean("isWritable", isWritable);
-                    writableMap.putBoolean("canMakeReadOnly", canMakeReadOnly);
-                    callback.invoke(null, writableMap);
+
+                    NdefStatus ndefStatus = new NdefStatus(maxSize, isWritable, canMakeReadOnly);
+                    WritableMap map = ndefStatus.toWritableMap();
+
+                    callback.invoke(null, map);
                 } catch (Exception ex) {
-                    Log.d(LOG_TAG, ex.toString());
+                    Log.e(LOG_TAG, "Error while retrieving Ndef state.", ex);
                     callback.invoke(ex.toString());
                 }
             } else {
@@ -583,6 +609,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
         synchronized (this) {
             if (techRequest != null) {
                 try {
+
                     MifareClassic mifareTag = (MifareClassic) techRequest.getTechHandle();
                     if (mifareTag == null || mifareTag.getType() == MifareClassic.TYPE_UNKNOWN) {
                         // Not a mifare card, fail
