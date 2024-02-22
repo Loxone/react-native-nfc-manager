@@ -2,6 +2,7 @@ package community.revteltech.nfc.usecases;
 
 import android.nfc.Tag;
 import android.nfc.tech.Ndef;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 
@@ -17,6 +18,8 @@ import java.io.IOException;
  */
 public class MakeReadOnlyUseCase {
 
+    private static final String LOG_TAG = "MakeReadOnlyUseCase";
+
     /**
      * Makes the given tag read-only.
      *
@@ -27,6 +30,7 @@ public class MakeReadOnlyUseCase {
     public static boolean invoke(@NonNull Tag tag, @NonNull NxpNfcLib nfcLib) throws IOException {
 
         CardType cardType = nfcLib.getCardType(tag);
+        Log.d(LOG_TAG,"Detected NFC card type: " + cardType.name());
 
         switch (cardType) {
             case NTag216:

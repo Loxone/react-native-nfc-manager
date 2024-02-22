@@ -94,7 +94,7 @@ declare module 'react-native-nfc-manager' {
   interface NdefHandler {
     writeNdefMessage: (bytes: number[] , options?: { reconnectAfterWrite: boolean }) => Promise<void>;
     getNdefMessage: () => Promise<TagEvent | null>;
-    makeReadOnly: () => Promise<void>;
+    makeReadOnly: () => Promise<boolean>;
     getNdefStatus: () => Promise<{
       status: NdefStatus;
       capacity: number;

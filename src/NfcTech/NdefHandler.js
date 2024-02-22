@@ -26,7 +26,9 @@ class NdefHandler {
   }
 
   async makeReadOnly() {
-    return handleNativeException(callNative('makeReadOnly'));
+    const result = await handleNativeException(callNative('makeReadOnly'));
+
+    return result === true;
   }
 
   async getNdefStatus() {
