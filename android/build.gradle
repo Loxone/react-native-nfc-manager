@@ -50,7 +50,7 @@ dependencies {
 	// Include NXP NFC library as aar file
   	implementation fileTree(dir: "libs", include: ["*.aar"])
 	// Firebase is required by NXP NFC library, but the library does not include it itself (see NXP TapLinx SDK documentation)
-	implementation fileTree(dir: "libs", include: ["*.aar"])
+	implementation "com.google.firebase:firebase-core:21.1.1"
 
 	implementation 'com.facebook.react:react-native:+'
 }
