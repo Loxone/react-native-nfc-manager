@@ -73,6 +73,27 @@ class DesfireUtilImpl implements DesfireUtil {
         return instance;
     }
 
+    @Override
+    public boolean isReadOnly(IDESFireEV1 desFireEV1) {
+
+        try {
+
+            desFireEV1.selectApplication(0);
+            desFireEV1.authenticate(
+                    0,
+                    IDESFireEV1.AuthType.ISO,
+                    KeyType.THREEDES,
+                    masterKeyData);
+
+            return false;
+        } catch (Exception error) {
+            Log.e(LOG_TAG, "Error while checking is-read-only.", error);
+        }
+
+        return true;
+
+    }
+
     public void makeReadOnly(IDESFireEV1 desFireEV1) {
 
         try {
@@ -153,8 +174,8 @@ class DesfireUtilImpl implements DesfireUtil {
             Log.d(LOG_TAG, "fileType " + fileType + " not handled");
             return;
         }
-        DESFireFile.StdDataFileSettings stdDataFileSettings =
-                (DESFireFile.StdDataFileSettings) fileSettings;
+
+        DESFireFile.StdDataFileSettings stdDataFileSettings = (DESFireFile.StdDataFileSettings) fileSettings;
         DESFireFile.StdDataFileSettings newFileSettings =
                 new DESFireFile.StdDataFileSettings(
                         stdDataFileSettings.getComSettings(),
