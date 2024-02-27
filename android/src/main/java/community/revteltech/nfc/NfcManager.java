@@ -11,10 +11,17 @@ import android.os.Build;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+
 import android.util.Log;
 import android.provider.Settings;
+
 import com.facebook.react.bridge.*;
 import com.facebook.react.modules.core.RCTNativeAppEventEmitter;
+import com.nxp.nfclib.CardType;
+import com.nxp.nfclib.KeyType;
+import com.nxp.nfclib.NxpNfcLib;
+import com.nxp.nfclib.desfire.DESFireFactory;
+import com.nxp.nfclib.desfire.IDESFireEV1;
 
 import android.app.PendingIntent;
 import android.content.IntentFilter.MalformedMimeTypeException;
@@ -41,11 +48,17 @@ import org.json.JSONException;
 
 import java.util.*;
 
+import community.revteltech.nfc.desfire.DesfireUtil;
+import community.revteltech.nfc.dto.NdefStatus;
+import community.revteltech.nfc.usecases.MakeReadOnlyUseCase;
+
 class NfcManager extends ReactContextBaseJavaModule implements ActivityEventListener, LifecycleEventListener {
     private static final String LOG_TAG = "ReactNativeNfcManager";
     private final List<IntentFilter> intentFilters = new ArrayList<>();
     private final ArrayList<String[]> techLists = new ArrayList<>();
     private final Context context;
+    private final NxpNfcLib nfcLib;
+
     private Boolean isForegroundEnabled = false;
     private Boolean isResumed = false;
     private WriteNdefRequest writeNdefRequest = null;
@@ -85,6 +98,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
         context = reactContext;
         reactContext.addActivityEventListener(this);
         reactContext.addLifecycleEventListener(this);
+        nfcLib = NxpNfcLib.getInstance();
         Log.d(LOG_TAG, "NfcManager created");
     }
 
@@ -113,7 +127,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void cancelTechnologyRequest(Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 techRequest.close();
                 try {
@@ -130,7 +144,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void requestTechnology(ReadableArray techs, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (!isForegroundEnabled) {
                 callback.invoke(ERR_NOT_REGISTERED);
                 return;
@@ -146,7 +160,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void closeTechnology(Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 techRequest.close();
                 techRequest = null;
@@ -182,11 +196,11 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void getCachedNdefMessage(Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
                     Ndef ndef = Ndef.get(techRequest.getTagHandle());
-                    WritableMap parsed = ndef2React(ndef, new NdefMessage[] { ndef.getCachedNdefMessage() });
+                    WritableMap parsed = ndef2React(ndef, new NdefMessage[]{ndef.getCachedNdefMessage()});
                     callback.invoke(null, parsed);
                 } catch (Exception ex) {
                     Log.d(LOG_TAG, ex.toString());
@@ -200,11 +214,11 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void getNdefMessage(Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
                     Ndef ndef = Ndef.get(techRequest.getTagHandle());
-                    WritableMap parsed = ndef2React(null, new NdefMessage[] { ndef.getNdefMessage() });
+                    WritableMap parsed = ndef2React(null, new NdefMessage[]{ndef.getNdefMessage()});
                     callback.invoke(null, parsed);
                 } catch (Exception ex) {
                     Log.d(LOG_TAG, ex.toString());
@@ -218,20 +232,40 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void getNdefStatus(Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
-                WritableMap writableMap = Arguments.createMap();
+
                 try {
-                    Ndef ndef = Ndef.get(techRequest.getTagHandle());
+
+                    Tag tag = techRequest.getTagHandle();
+                    techRequest.close();
+
+                    CardType cardType = nfcLib.getCardType(tag);
+                    Log.d(LOG_TAG, "Checking NdefStatus of NFC-tag with card-type: " + cardType.name());
+
+                    boolean isWritable;
+
+                    if (cardType == CardType.DESFireEV1) {
+
+                        IDESFireEV1 desFireEV1 = DESFireFactory.getInstance().getDESFire(nfcLib.getCustomModules());
+                        boolean isReadOnly = DesfireUtil.getInstance().isReadOnly(desFireEV1);
+                        isWritable = !isReadOnly;
+
+                    } else {
+                        Ndef ndef = Ndef.get(tag);
+                        isWritable = ndef.isWritable();
+                    }
+
+                    Ndef ndef = Ndef.get(tag);
                     int maxSize = ndef.getMaxSize();
-                    boolean isWritable = ndef.isWritable();
                     boolean canMakeReadOnly = ndef.canMakeReadOnly();
-                    writableMap.putInt("maxSize", maxSize);
-                    writableMap.putBoolean("isWritable", isWritable);
-                    writableMap.putBoolean("canMakeReadOnly", canMakeReadOnly);
-                    callback.invoke(null, writableMap);
+
+                    NdefStatus ndefStatus = new NdefStatus(maxSize, isWritable, canMakeReadOnly);
+                    WritableMap map = ndefStatus.toWritableMap();
+
+                    callback.invoke(null, map);
                 } catch (Exception ex) {
-                    Log.d(LOG_TAG, ex.toString());
+                    Log.e(LOG_TAG, "Error while retrieving Ndef state.", ex);
                     callback.invoke(ex.toString());
                 }
             } else {
@@ -242,12 +276,12 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void writeNdefMessage(ReadableArray rnArray, ReadableMap options, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             boolean reconnectAfterWrite = options.getBoolean("reconnectAfterWrite");
-            
+
             if (techRequest != null) {
                 try {
-                    Ndef ndef = (Ndef)techRequest.getTechHandle();
+                    Ndef ndef = (Ndef) techRequest.getTechHandle();
                     if (ndef == null) {
                         callback.invoke(ERR_API_NOT_SUPPORT);
                     } else {
@@ -255,7 +289,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
                         ndef.writeNdefMessage(new NdefMessage(bytes));
                         if (reconnectAfterWrite) {
                             ndef.close();
-                            //reconnection is needed in order to be able to read the written ndef 
+                            //reconnection is needed in order to be able to read the written ndef
                             ndef.connect();
                         }
                         callback.invoke();
@@ -274,10 +308,10 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
     public void formatNdef(ReadableArray rnArray, ReadableMap options, Callback callback) {
         boolean readOnly = options.getBoolean("readOnly");
 
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
-                    NdefFormatable ndef = (NdefFormatable)techRequest.getTechHandle();
+                    NdefFormatable ndef = (NdefFormatable) techRequest.getTechHandle();
                     if (ndef == null) {
                         callback.invoke(ERR_API_NOT_SUPPORT);
                     } else {
@@ -345,21 +379,21 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void mifareClassicAuthenticateA(int sector, ReadableArray key, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             mifareClassicAuthenticate('A', sector, key, callback);
         }
     }
 
     @ReactMethod
     public void mifareClassicAuthenticateB(int sector, ReadableArray key, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             mifareClassicAuthenticate('B', sector, key, callback);
         }
     }
 
     @ReactMethod
     public void mifareClassicGetBlockCountInSector(int sectorIndex, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
                     MifareClassic mifareTag = (MifareClassic) techRequest.getTechHandle();
@@ -386,7 +420,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void mifareClassicGetSectorCount(Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
                     MifareClassic mifareTag = (MifareClassic) techRequest.getTechHandle();
@@ -408,7 +442,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void mifareClassicSectorToBlock(int sectorIndex, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
                     MifareClassic mifareTag = (MifareClassic) techRequest.getTechHandle();
@@ -435,7 +469,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void mifareClassicReadBlock(int blockIndex, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
                     MifareClassic mifareTag = (MifareClassic) techRequest.getTechHandle();
@@ -467,7 +501,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void mifareClassicReadSector(int sectorIndex, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
                     MifareClassic mifareTag = (MifareClassic) techRequest.getTechHandle();
@@ -486,7 +520,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
                     int blocks = mifareTag.getBlockCountInSector(sectorIndex);
                     byte[] buffer;
                     for (int i = 0; i < blocks; i++) {
-                        buffer = mifareTag.readBlock(mifareTag.sectorToBlock(sectorIndex)+i);
+                        buffer = mifareTag.readBlock(mifareTag.sectorToBlock(sectorIndex) + i);
                         appendBytesToRnArray(result, buffer);
                     }
 
@@ -504,7 +538,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void mifareClassicWriteBlock(int blockIndex, ReadableArray block, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
                     MifareClassic mifareTag = (MifareClassic) techRequest.getTechHandle();
@@ -541,7 +575,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void mifareClassicIncrementBlock(int blockIndex, int value, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
                     MifareClassic mifareTag = (MifareClassic) techRequest.getTechHandle();
@@ -572,9 +606,10 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void mifareClassicDecrementBlock(int blockIndex, int value, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
+
                     MifareClassic mifareTag = (MifareClassic) techRequest.getTechHandle();
                     if (mifareTag == null || mifareTag.getType() == MifareClassic.TYPE_UNKNOWN) {
                         // Not a mifare card, fail
@@ -603,7 +638,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void mifareClassicTransferBlock(int blockIndex, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
                     MifareClassic mifareTag = (MifareClassic) techRequest.getTechHandle();
@@ -634,10 +669,10 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void mifareUltralightReadPages(int pageOffset, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
-                    MifareUltralight techHandle = (MifareUltralight)techRequest.getTechHandle();
+                    MifareUltralight techHandle = (MifareUltralight) techRequest.getTechHandle();
                     byte[] resultBytes = techHandle.readPages(pageOffset);
                     WritableArray resultRnArray = bytesToRnArray(resultBytes);
                     callback.invoke(null, resultRnArray);
@@ -654,11 +689,11 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void mifareUltralightWritePage(int pageOffset, ReadableArray rnArray, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
                     byte[] bytes = rnArrayToBytes(rnArray);
-                    MifareUltralight techHandle = (MifareUltralight)techRequest.getTechHandle();
+                    MifareUltralight techHandle = (MifareUltralight) techRequest.getTechHandle();
                     techHandle.writePage(pageOffset, bytes);
                     callback.invoke();
                 } catch (TagLostException ex) {
@@ -674,14 +709,15 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void makeReadOnly(Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
+
                 try {
-                    Ndef ndef = (Ndef)techRequest.getTechHandle();
-                    boolean result = ndef.makeReadOnly();
+                    techRequest.close();
+                    boolean result = MakeReadOnlyUseCase.invoke(tag, nfcLib);
                     callback.invoke(null, result);
                 } catch (Exception ex) {
-                    Log.d(LOG_TAG, ex.toString());
+                    Log.e(LOG_TAG, "Error while making NFC tag read-only.", ex);
                     callback.invoke(ex.toString());
                 }
             } else {
@@ -744,8 +780,8 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
     }
 
     @ReactMethod
-    public void connect(ReadableArray techs, Callback callback){
-        synchronized(this) {
+    public void connect(ReadableArray techs, Callback callback) {
+        synchronized (this) {
             try {
                 techRequest = new TagTechnologyRequest(techs.toArrayList(), callback);
                 techRequest.connect(this.tag);
@@ -757,8 +793,8 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
     }
 
     @ReactMethod
-    public void close(Callback callback){
-        synchronized(this) {
+    public void close(Callback callback) {
+        synchronized (this) {
             try {
                 techRequest.close();
                 callback.invoke(null, null);
@@ -770,7 +806,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void transceive(ReadableArray rnArray, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
                     String tech = techRequest.getTechType();
@@ -844,7 +880,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void getMaxTransceiveLength(Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (techRequest != null) {
                 try {
                     String tech = techRequest.getTechType();
@@ -904,7 +940,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void cancelNdefWrite(Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (writeNdefRequest != null) {
                 writeNdefRequest.callback.invoke(ERR_CANCEL);
                 writeNdefRequest = null;
@@ -917,7 +953,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
 
     @ReactMethod
     public void requestNdefWrite(ReadableArray rnArray, ReadableMap options, Callback callback) {
-        synchronized(this) {
+        synchronized (this) {
             if (!isForegroundEnabled) {
                 callback.invoke(ERR_NOT_REGISTERED);
                 return;
@@ -980,7 +1016,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
     }
 
     @ReactMethod
-    public void isSupported(String tech, Callback callback){
+    public void isSupported(String tech, Callback callback) {
         Log.d(LOG_TAG, "isSupported");
         Activity currentActivity = getCurrentActivity();
         if (currentActivity == null) {
@@ -1164,14 +1200,14 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
                                     // if the tag contains NDEF, we want to report the content
                                     if (Arrays.asList(tag.getTechList()).contains(Ndef.class.getName())) {
                                         Ndef ndef = Ndef.get(tag);
-                                        nfcTag = ndef2React(ndef, new NdefMessage[] { ndef.getCachedNdefMessage() });
+                                        nfcTag = ndef2React(ndef, new NdefMessage[]{ndef.getCachedNdefMessage()});
                                     } else {
                                         nfcTag = tag2React(tag);
                                     }
 
                                     if (nfcTag != null) {
                                         sendEvent("NfcManagerDiscoverTag", nfcTag);
-                                        if (techRequest!= null && !techRequest.isConnected()) {
+                                        if (techRequest != null && !techRequest.isConnected()) {
                                             boolean result = techRequest.connect(tag);
                                             if (result) {
                                                 techRequest.invokePendingCallback(techRequest.getTechType());
@@ -1299,7 +1335,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
         }
         // Parcelable[] messages = intent.getParcelableArrayExtra((NfcAdapter.EXTRA_NDEF_MESSAGES));
 
-        synchronized(this) {
+        synchronized (this) {
             this.tag = tag;
             if (writeNdefRequest != null) {
                 writeNdef(
@@ -1445,7 +1481,7 @@ class NfcManager extends ReactContextBaseJavaModule implements ActivityEventList
     private static byte[] rnArrayToBytes(ReadableArray rArray) {
         byte[] bytes = new byte[rArray.size()];
         for (int i = 0; i < rArray.size(); i++) {
-            bytes[i] = (byte)(rArray.getInt(i) & 0xff);
+            bytes[i] = (byte) (rArray.getInt(i) & 0xff);
         }
         return bytes;
     }
