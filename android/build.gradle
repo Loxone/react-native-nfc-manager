@@ -88,15 +88,6 @@ publishing {
     }
     repositories {
         maven {
-//            url "$buildDir/repo"
-            url "$rootDir/libs/repo"
-        }
-    }
-}
-
-allprojects {
-    repositories {
-        maven {
             url "$rootDir/libs/repo"
         }
     }
@@ -105,9 +96,14 @@ allprojects {
 repositories {
     google()
     mavenCentral()
+    
     maven {
         // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
         url "$rootDir/../node_modules/react-native/android"
+    }
+
+    maven {
+        url "$rootDir/libs/repo"
     }
 
 }
@@ -117,7 +113,7 @@ dependencies {
 
     // Include NXP NFC library as aar file
     // implementation fileTree(dir: "libs", include: ["*.aar"])
-    implementation("nxp:nfcandroid:3.1.0@aar") {
+    implementation("nxp:nfcandroid:3.1.0") {
         transitive = true
     }
     // Firebase is required by NXP NFC library, but the library does not include it itself (see NXP TapLinx SDK documentation)
