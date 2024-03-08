@@ -3,54 +3,125 @@ def safeExtGet(prop, fallback) {
 }
 
 buildscript {
-	repositories {
-		mavenCentral()
-	}
 
-	dependencies {
-		classpath 'com.android.tools.build:gradle:1.5.0'
-	}
+    def kotlin_version = rootProject.ext.has("kotlinVersion") ? rootProject.ext.get("kotlinVersion") : project.properties["NfcManager_kotlinVersion"]
+
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.3.0'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
 }
 apply plugin: 'com.android.library'
+apply plugin: "kotlin-android"
+apply plugin: "maven-publish"
+
+if (isNewArchitectureEnabled()) {
+    apply plugin: "com.facebook.react"
+}
+
+def isNewArchitectureEnabled() {
+    return rootProject.hasProperty("newArchEnabled") && rootProject.getProperty("newArchEnabled") == "true"
+}
+
+def getExtOrDefault(name) {
+    return rootProject.ext.has(name) ? rootProject.ext.get(name) : project.properties["NfcManager_" + name]
+}
+
+def getExtOrIntegerDefault(name) {
+    return rootProject.ext.has(name) ? rootProject.ext.get(name) : (project.properties["NfcManager_" + name]).toInteger()
+}
+
+static def supportsNamespace() {
+    def parsed = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION.tokenize('.')
+    def major = parsed[0].toInteger()
+    def minor = parsed[1].toInteger()
+
+    // Namespace support was added in 7.3.0
+    return (major == 7 && minor >= 3) || major >= 8
+}
 
 android {
-	compileSdkVersion safeExtGet('compileSdkVersion', 31)
+    compileSdkVersion safeExtGet('compileSdkVersion', 31)
 
-	def agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
+    if (supportsNamespace()) {
+        namespace "community.revteltech.nfc"
+    }
 
-	if (agpVersion.tokenize('.')[0].toInteger() >= 7) {
-			namespace "community.revteltech.nfc"
-  }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
 
-	defaultConfig {
-		minSdkVersion safeExtGet('minSdkVersion', 16)
-    	//noinspection OldTargetApi
-		targetSdkVersion safeExtGet('targetSdkVersion', 27)
-	}
-	lintOptions {
-		abortOnError false
-	}
+    defaultConfig {
+        minSdkVersion getExtOrIntegerDefault('minSdkVersion')
+        targetSdkVersion getExtOrIntegerDefault('targetSdkVersion')
+    }
+}
+
+// Run "gradle publish" from terminal to publish the aar-file (located in /libs)
+// Make sure to add resulting repository-files to git.
+// Then we can include the aar dependency as a regular "maven" repository further down the road.
+// This prevents "Direct local.aar file dependencies are not supported" errors, such as:
+// https://github.com/facebook/react-native/issues/33062
+publishing {
+    publications {
+        maven(MavenPublication) {
+            groupId "nxp"
+            artifactId "nfcandroid"
+            version "3.1.0"
+            artifact "$rootDir/libs/nxpnfcandroidlib-3.1.0.aar"
+            pom.withXml {
+                def dependenciesNode = asNode().appendNode("dependencies")
+                configurations.implementation.allDependencies.each { dependency ->
+                    def dependencyNode = dependenciesNode.appendNode("dependency")
+                    dependencyNode.appendNode("groupId", dependency.group)
+                    dependencyNode.appendNode("artifactId", dependency.name)
+                    dependencyNode.appendNode("version", dependency.version)
+                }
+            }
+        }
+    }
+    repositories {
+
+        maven {
+            url "$rootDir/libs/repo"
+        }
+
+    }
 }
 
 repositories {
-	mavenCentral()
-	maven {
-		// All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
-		url "$rootDir/../node_modules/react-native/android"
-	}
+    google()
+    mavenCentral()
 
-	flatDir {
-        dirs("libs")
+    maven {
+        // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
+        url "$rootDir/../node_modules/react-native/android"
     }
+
+    maven {
+        url "$rootDir/libs/repo"
+    }
+
+    maven {
+        url = "$rootDir/../../../node_modules/react-native-nfc-manager/android/libs/repo"
+    }
+
 }
 
 
 dependencies {
 
-	// Include NXP NFC library as aar file
-  	implementation fileTree(dir: "libs", include: ["*.aar"])
-	// Firebase is required by NXP NFC library, but the library does not include it itself (see NXP TapLinx SDK documentation)
-	implementation "com.google.firebase:firebase-core:21.1.1"
+    // Include NXP NFC library as aar file
+    // implementation fileTree(dir: "libs", include: ["*.aar"])
+    implementation("nxp:nfcandroid:3.1.0")
+    // Firebase is required by NXP NFC library, but the library does not include it itself (see NXP TapLinx SDK documentation)
+    implementation "com.google.firebase:firebase-core:21.1.1"
 
-	implementation 'com.facebook.react:react-native:+'
+    implementation 'com.facebook.react:react-native:+'
 }
